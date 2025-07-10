@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Launch App",
+            "request": "launch",
+            "mainClass": "App",
+            "vmArgs": "--module-path \"lib\" --add-modules javafx.controls,javafx.fxml -Djava.library.path=\"lib\""
+        }
+    ]
+}
