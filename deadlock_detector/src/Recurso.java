@@ -3,23 +3,20 @@ import java.util.concurrent.Semaphore;
 public class Recurso {
     private int id;
     private String nome;
-    private int quantidadeTotal;
-    private Semaphore semaforo;
-
+    private Semaphore quantidadeTotal;
 
     public Recurso(int id, String nome, int quantidadeTotal) {
         this.id = id;
         this.nome = nome;
-        this.quantidadeTotal = quantidadeTotal;
-        this.semaforo = new Semaphore(quantidadeTotal);
+        this.quantidadeTotal = new Semaphore(quantidadeTotal);
     }
 
     public void adquirirRecurso() throws InterruptedException {
-        semaforo.acquire();
+        quantidadeTotal.acquire();
     }
 
     public void liberarRecurso() {
-        semaforo.release();
+        quantidadeTotal.release();
     }
 
     public int getId() {
@@ -30,11 +27,7 @@ public class Recurso {
         return nome;
     }
 
-    public int getQuantidadeTotal() {
+    public Semaphore getSemaforoQuantidadeTotal() {
         return quantidadeTotal;
-    }
-
-    public Semaphore getSemaforo() {
-        return semaforo;
     }
 }
