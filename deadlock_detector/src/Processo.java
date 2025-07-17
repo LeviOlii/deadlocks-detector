@@ -1,45 +1,51 @@
+public class Processo extends Thread {
+    private int id;
+    private int deltaS;
+    private int deltaU;
+    private SistemaOperacional sistema;
+    private Recurso recursoUsado = null;
+    private java.util.function.Consumer<String> logger;
 
-public class Processo extends Thread{
-    private long id;
-    private int tempoSolicitacao; // Tempo em segundos que o processo leva para solicitar um recurso
-    private int tempoUtilizacao; // Tempo em segundos que o processo leva para usar o recurso
-    private boolean acordado = true;
-
-    public Processo(int id, int tempoSolicitacao, int tempoUtilizacao) {
+    public Processo(int id, int deltaS, int deltaU, SistemaOperacional sistema, java.util.function.Consumer<String> logger) {
         this.id = id;
-        this.tempoSolicitacao = tempoSolicitacao;
-        this.tempoUtilizacao = tempoUtilizacao;
+        this.deltaS = deltaS;
+        this.deltaU = deltaU;
+        this.sistema = sistema;
+        this.logger = logger;
     }
 
-    public void setIsAwake(boolean acordado) {
-        this.acordado = acordado;
-    }
-
-    public boolean isAwake() {
-        return acordado;
-    }
-
-    public long getId() {
+    public int getProcessoId() {
         return id;
     }
-    public int getTempoSolicitacao() {
-        return tempoSolicitacao;
-    }
 
-    public int getTempoUtilizacao() {
-        return tempoUtilizacao;
+    public String status() {
+        return "Processo " + id + (recursoUsado == null ? " [bloqueado]" : " usando " + recursoUsado.getNome());
     }
-
 
     @Override
     public void run() {
-        while(true){
-            long inicio = System.currentTimeMillis();
-            while(System.currentTimeMillis() - inicio < tempoSolicitacao * 1000) {
-                // Simula o tempo de solicitação do recurso
+        while (!isInterrupted()) {
+            try {
+                Thread.sleep(deltaS * 1000L);
+                logger.accept("Processo " + id + " solicitando recurso...");
+                // Tenta obter o recurso, bloqueando até conseguir
+                while (!isInterrupted()) {
+                    recursoUsado = sistema.solicitarRecurso(this);
+                    if (recursoUsado != null) {
+                        logger.accept("Processo " + id + " usando recurso " + recursoUsado.getNome());
+                        Thread.sleep(deltaU * 1000L);
+                        sistema.liberarRecurso(this, recursoUsado);
+                        logger.accept("Processo " + id + " liberou recurso " + recursoUsado.getNome());
+                        recursoUsado = null;
+                        break; // Sai do loop de solicitação e volta ao início do while externo
+                    } else {
+                        // Se não conseguiu, dorme um pouco antes de tentar de novo
+                        Thread.sleep(500); // 0.5s, pode ajustar conforme desejar
+                    }
+                }
+            } catch (InterruptedException e) {
+                break;
             }
-            
-
         }
     }
 }

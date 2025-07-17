@@ -1,54 +1,98 @@
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Random;
-import java.util.concurrent.Semaphore;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-public class SistemaOperacional extends Thread{
-    private List<Recurso> recursos = Collections.synchronizedList(new ArrayList<>());
-    private List<Processo> processos = Collections.synchronizedList(new ArrayList<>());
-    private Random random = new Random();
-    private Semaphore mutex = new Semaphore(1);
+public class SistemaOperacional extends Thread {
+    private List<Recurso> recursos = new ArrayList<>();
+    private List<Processo> processos = new CopyOnWriteArrayList<>();
+    private Map<Processo, Recurso> alocados = new HashMap<>();
+    private java.util.function.Consumer<String> logger = System.out::println;
+    private Runnable onUpdate = () -> {};
+    private int intervaloVerificacao; // em segundos
 
-    public void adicionarRecurso(Recurso recurso) {
-        recursos.add(recurso);
+    public SistemaOperacional(int intervaloVerificacao) {
+        this.intervaloVerificacao = intervaloVerificacao;
     }
 
-    public void adicionarProcesso(Processo processo) {
-        processos.add(processo);
+    public void setLogger(java.util.function.Consumer<String> logFunc) {
+        this.logger = logFunc;
     }
 
-    // Método para solicitar um recurso para um processo, utilizado por Processos
-    public void solicitarRecurso(Processo processo) {
-        if(recursos.isEmpty()) {
-            System.out.println("Nenhum recurso disponível para o processo " + processo.getId());
-            return;
+    public void setOnUpdate(Runnable r) {
+        this.onUpdate = r;
+    }
+
+    public boolean adicionarRecurso(Recurso r) {
+        if (recursos.size() >= 10) return false;
+        for (Recurso recurso : recursos) {
+            if (recurso.getId() == r.getId()) return false;
         }
-        try {
-            mutex.acquire();
-            Recurso recurso = recursos.get(random.nextInt(recursos.size()));
-            if(recurso.getSemaforoQuantidadeTotal().tryAcquire()){ // Tenta adquirir o recurso, se não conseguir, retorna false
-                System.out.println("Processo " + processo.getId() + " adquiriu o recurso " + recurso.getNome());
-                processo.setIsAwake(true); // Processo agora está usando o recurso
-                mutex.release();
-                
-                // Simula o tempo de utilização do recurso
-                long inicio = System.currentTimeMillis();
-                while(System.currentTimeMillis() - inicio < processo.getTempoUtilizacao() * 1000) {
-                    System.out.println("Processo " + processo.getId() + " está utilizando o recurso " + recurso.getNome());
-                }
-                
-                recurso.liberarRecurso(); // Libera o recurso após uso
-                System.out.println("Processo " + processo.getId() + " liberou o recurso " + recurso.getNome());
-            } else {
-                System.out.println("Processo " + processo.getId() + " não conseguiu adquirir o recurso " + recurso.getNome() + ", está BLOQUEADO.");
-                processo.setIsAwake(false); // Processo não conseguiu usar o recurso, então está dormindo
-                mutex.release();
-            }
-            
+        recursos.add(r);
+        return true;
+    }
 
-        }catch (InterruptedException e) {
-            e.printStackTrace();
+    public void adicionarProcesso(Processo p) {
+        if (processos.size() < 10)
+            processos.add(p);
+    }
+
+    public void removerProcesso(Processo p) {
+        processos.remove(p);
+        alocados.remove(p);
+    }
+
+    public List<Processo> getProcessos() {
+        return processos;
+    }
+
+    public Recurso solicitarRecurso(Processo p) {
+        Collections.shuffle(recursos);
+        for (Recurso r : recursos) {
+            if (r.alocar()) {
+                alocados.put(p, r);
+                logger.accept("Processo " + p.getName() + " obteve " + r.getNome());
+                onUpdate.run();
+                return r;
+            }
+        }
+        logger.accept("Processo " + p.getName() + " bloqueado (sem recursos disponíveis)");
+        onUpdate.run();
+        return null;
+    }
+
+    public void liberarRecurso(Processo p, Recurso r) {
+        r.liberar();
+        alocados.remove(p);
+        logger.accept("Processo " + p.getName() + " liberou " + r.getNome());
+        onUpdate.run();
+    }
+
+    public List<String> statusRecursos() {
+        List<String> lista = new ArrayList<>();
+        for (Recurso r : recursos) lista.add(r.toString());
+        return lista;
+    }
+
+    public List<String> statusProcessos() {
+        List<String> lista = new ArrayList<>();
+        for (Processo p : processos) lista.add(p.status());
+        return lista;
+    }
+
+    @Override
+    public void run() {
+        while (true) {
+            try {
+                Thread.sleep(intervaloVerificacao * 1000L);
+                detectarDeadlock();
+            } catch (InterruptedException e) {
+                break;
+            }
+        }
+    }
+
+    private void detectarDeadlock() {
+        if (alocados.size() >= 2) {
+            logger.accept("⚠ POSSÍVEL DEADLOCK detectado entre processos: " + alocados.keySet().stream().map(p -> "" + p.getName()).toList());
         }
     }
 }

@@ -1,33 +1,35 @@
-import java.util.concurrent.Semaphore;
-
 public class Recurso {
     private int id;
     private String nome;
-    private Semaphore quantidadeTotal;
+    private int total;
+    private int disponivel;
 
-    public Recurso(int id, String nome, int quantidadeTotal) {
+    public Recurso(int id, String nome, int total) {
         this.id = id;
         this.nome = nome;
-        this.quantidadeTotal = new Semaphore(quantidadeTotal);
+        this.total = total;
+        this.disponivel = total;
     }
 
-    public void adquirirRecurso() throws InterruptedException {
-        quantidadeTotal.acquire();
+    public boolean alocar() {
+        if (disponivel > 0) {
+            disponivel--;
+            return true;
+        }
+        return false;
     }
 
-    public void liberarRecurso() {
-        quantidadeTotal.release();
+    public void liberar() {
+        disponivel++;
     }
 
-    public int getId() {
-        return id;
-    }
+    public int getId() { return id; }
+    public String getNome() { return nome; }
+    public int getDisponivel() { return disponivel; }
+    public int getTotal() { return total; }
 
-    public String getNome() {
-        return nome;
-    }
-
-    public Semaphore getSemaforoQuantidadeTotal() {
-        return quantidadeTotal;
+    @Override
+    public String toString() {
+        return nome + " (" + disponivel + "/" + total + ")";
     }
 }
