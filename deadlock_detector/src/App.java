@@ -1,5 +1,6 @@
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
@@ -20,6 +21,7 @@ public class App extends Application {
     private TextArea matrizRequisicao = new TextArea();
     private AtomicLong lastUpdateTime = new AtomicLong(0);
     private static final long UPDATE_INTERVAL_MS = 500; // 500ms throttling
+    private Label vetorDisponiveis = new Label();
 
     @Override
     public void start(Stage primaryStage) {
@@ -188,8 +190,34 @@ public class App extends Application {
                 new Label("Matriz de Alocação:"),
                 matrizAlocacao,
                 new Label("Matriz de Requisição:"),
-                matrizRequisicao
+                matrizRequisicao,
+                vetorDisponiveis
         );
+
+// Painel para o cronômetro
+HBox timerPanel = new HBox();
+timerPanel.setAlignment(Pos.BOTTOM_RIGHT);
+Label timerLabel = new Label("0s");
+timerLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: blue;");
+Region spacer = new Region();
+HBox.setHgrow(spacer, Priority.ALWAYS);
+timerPanel.getChildren().addAll(spacer, timerLabel);
+rightPanel.getChildren().add(timerPanel);
+
+// Atualizar o cronômetro na interface
+sistemaOperacional.setOnUpdate(() -> Platform.runLater(() -> {
+    listaTodosRecursos.getItems().setAll(
+        sistemaOperacional.getRecursos().stream()
+            .map(r -> r.getNome() + " (ID: " + r.getId() + ", Total: " + r.getTotal() + ")")
+            .toList()
+    );
+    listaRecursosDisponiveis.getItems().setAll(sistemaOperacional.statusRecursos());
+    listaProcessos.getItems().setAll(sistemaOperacional.statusProcessos());
+    matrizAlocacao.setText(sistemaOperacional.getAllocationMatrixString());
+    matrizRequisicao.setText(sistemaOperacional.getRequestMatrixString());
+    vetorDisponiveis.setText(sistemaOperacional.getAvailableVectorString());
+    timerLabel.setText(sistemaOperacional.getElapsedTimeSeconds());
+}));
 
         HBox root = new HBox(10);
         root.setPadding(new javafx.geometry.Insets(10));
@@ -209,14 +237,14 @@ public class App extends Application {
         Platform.runLater(() -> {
             try {
                 listaTodosRecursos.getItems().setAll(
-                    sistemaOperacional.getRecursos().stream()
-                        .map(r -> r.getNome() + " (ID: " + r.getId() + ", Total: " + r.getTotal() + ")")
-                        .toList()
-                );
+                        sistemaOperacional.getRecursos().stream()
+                                .map(r -> r.getNome() + " (ID: " + r.getId() + ", Total: " + r.getTotal() + ")")
+                                .toList());
                 listaRecursosDisponiveis.getItems().setAll(sistemaOperacional.statusRecursos());
                 listaProcessos.getItems().setAll(sistemaOperacional.statusProcessos());
                 matrizAlocacao.setText(sistemaOperacional.getAllocationMatrixString());
                 matrizRequisicao.setText(sistemaOperacional.getRequestMatrixString());
+                vetorDisponiveis.setText(sistemaOperacional.getAvailableVectorString());
                 log("Interface atualizada às " + currentTime);
             } catch (Exception ex) {
                 log("Erro ao atualizar interface: " + ex.getMessage());

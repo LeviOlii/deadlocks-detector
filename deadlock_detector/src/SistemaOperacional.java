@@ -1,3 +1,4 @@
+
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -7,7 +8,7 @@ public class SistemaOperacional extends Thread {
     private Map<Processo, List<Recurso>> alocados = new HashMap<>();
     private Map<Processo, Recurso> aguardando = new HashMap<>();
     private Map<Recurso, List<Processo>> processosAguardando = new HashMap<>();
-    private java.util.function.Consumer<String> logger = System.out::println;
+    private java.util.function.Consumer<String> logger = message -> System.out.println(formatLogMessage(message));
     private Runnable onUpdate = () -> {};
     private int intervaloVerificacao;
     private int[][] allocationMatrix;
@@ -15,13 +16,34 @@ public class SistemaOperacional extends Thread {
     private int[] availableVector;
     private long lastMatrixUpdate = 0;
     private static final long MATRIX_UPDATE_INTERVAL_MS = 500;
+    private long startTime = 0;
+    private Thread timerThread;
+    private volatile boolean needsUpdate = false; // Flag para atualizações necessárias
 
     public SistemaOperacional(int intervaloVerificacao) {
         this.intervaloVerificacao = intervaloVerificacao;
     }
 
+    private String formatLogMessage(String message) {
+        if (startTime == 0) {
+            return message;
+        }
+        long elapsedMillis = System.currentTimeMillis() - startTime;
+        double elapsedSeconds = elapsedMillis / 1000.0;
+        return String.format("[%.3fs] %s", elapsedSeconds, message);
+    }
+
+    public String getElapsedTimeSeconds() {
+        if (startTime == 0) {
+            return "0s";
+        }
+        long elapsedMillis = System.currentTimeMillis() - startTime;
+        long elapsedSeconds = elapsedMillis / 1000;
+        return elapsedSeconds + "s";
+    }
+
     public void setLogger(java.util.function.Consumer<String> logFunc) {
-        this.logger = logFunc;
+        this.logger = message -> logFunc.accept(formatLogMessage(message));
     }
 
     public void setOnUpdate(Runnable r) {
@@ -43,6 +65,7 @@ public class SistemaOperacional extends Thread {
             recursos.add(r);
             processosAguardando.put(r, new ArrayList<>());
             updateMatrices();
+            needsUpdate = true;
             logger.accept("Recurso " + r.getNome() + " adicionado.");
             onUpdate.run();
             return true;
@@ -55,7 +78,12 @@ public class SistemaOperacional extends Thread {
                 processos.add(p);
                 alocados.put(p, new ArrayList<>());
                 updateMatrices();
+                needsUpdate = true;
                 logger.accept("Processo " + p.getProcessoName() + " adicionado.");
+                if (processos.size() == 1 && startTime == 0) {
+                    startTime = System.currentTimeMillis();
+                    startTimerThread();
+                }
                 onUpdate.run();
             } else {
                 logger.accept("Erro: Limite de 10 processos atingido.");
@@ -87,6 +115,7 @@ public class SistemaOperacional extends Thread {
             }
         }
         updateMatrices();
+        needsUpdate = true;
         onUpdate.run();
     }
 
@@ -99,6 +128,7 @@ public class SistemaOperacional extends Thread {
                 }
                 logger.accept("Processo " + p.getProcessoName() + " removido da espera por " + r.getNome());
                 updateMatrices();
+                needsUpdate = true;
                 onUpdate.run();
             }
         }
@@ -120,51 +150,45 @@ public class SistemaOperacional extends Thread {
         return processos;
     }
 
-    public Recurso solicitarRecurso(Processo p) {
-        logger.accept("Processo " + p.getProcessoName() + " tentando alocar recurso...");
+    public Recurso solicitarRecurso(Processo p, Recurso desejado) {
+        logger.accept("Processo " + p.getProcessoName() + " tentando alocar recurso " + desejado.getNome());
         if (recursos.isEmpty()) {
             logger.accept("Nenhum recurso disponível para processo " + p.getProcessoName());
             return null;
         }
         synchronized (alocados) {
             synchronized (aguardando) {
-                // Check if process is waiting for a specific resource
-                Recurso waitingFor = aguardando.get(p);
-                if (waitingFor != null) {
-                    if (waitingFor.alocar()) {
-                        alocados.computeIfAbsent(p, k -> new ArrayList<>()).add(waitingFor);
-                        aguardando.remove(p);
-                        synchronized (processosAguardando) {
-                            processosAguardando.get(waitingFor).remove(p);
-                        }
-                        logger.accept("Processo " + p.getProcessoName() + " obteve " + waitingFor.getNome());
-                        updateMatrices();
-                        onUpdate.run();
-                        return waitingFor;
-                    }
-                    logger.accept("Recurso " + waitingFor.getNome() + " ainda indisponível para processo " + p.getProcessoName());
+                List<Recurso> recursosAlocados = alocados.getOrDefault(p, new ArrayList<>());
+                long jaPossuo = recursosAlocados.stream().filter(r -> r == desejado).count();
+                if (jaPossuo >= desejado.getTotal()) {
+                    logger.accept("Processo " + p.getProcessoName() + " já possui todas as instâncias de "
+                            + desejado.getNome() + ", solicitação ignorada.");
                     return null;
                 }
-                // Try to allocate a new resource
-                List<Recurso> shuffledRecursos = new ArrayList<>(recursos);
-                Collections.shuffle(shuffledRecursos);
-                for (Recurso r : shuffledRecursos) {
-                    if (r.alocar()) {
-                        alocados.computeIfAbsent(p, k -> new ArrayList<>()).add(r);
-                        logger.accept("Processo " + p.getProcessoName() + " obteve " + r.getNome());
-                        updateMatrices();
-                        onUpdate.run();
-                        return r;
+                Recurso waitingFor = aguardando.get(p);
+                if (waitingFor != null && waitingFor != desejado) {
+                    logger.accept("Processo " + p.getProcessoName() + " já está aguardando outro recurso.");
+                    return null;
+                }
+                if (desejado.alocar()) {
+                    alocados.computeIfAbsent(p, k -> new ArrayList<>()).add(desejado);
+                    aguardando.remove(p);
+                    synchronized (processosAguardando) {
+                        processosAguardando.get(desejado).remove(p);
                     }
+                    logger.accept("Processo " + p.getProcessoName() + " obteve " + desejado.getNome());
+                    updateMatrices();
+                    needsUpdate = true;
+                    onUpdate.run();
+                    return desejado;
                 }
-                // No resource available, block on first resource
-                Recurso r = recursos.get(0);
-                aguardando.put(p, r);
+                aguardando.put(p, desejado);
                 synchronized (processosAguardando) {
-                    processosAguardando.computeIfAbsent(r, k -> new ArrayList<>()).add(p);
+                    processosAguardando.computeIfAbsent(desejado, k -> new ArrayList<>()).add(p);
                 }
-                logger.accept("Processo " + p.getProcessoName() + " bloqueado aguardando " + r.getNome());
+                logger.accept("Processo " + p.getProcessoName() + " bloqueado aguardando " + desejado.getNome());
                 updateMatrices();
+                needsUpdate = true;
                 onUpdate.run();
                 return null;
             }
@@ -178,6 +202,7 @@ public class SistemaOperacional extends Thread {
                 r.liberar();
                 logger.accept("Processo " + p.getProcessoName() + " liberou " + r.getNome());
                 updateMatrices();
+                needsUpdate = true;
                 notifyWaitingProcesses(r);
             }
         }
@@ -257,6 +282,19 @@ public class SistemaOperacional extends Thread {
         return sb.toString();
     }
 
+    public String getAvailableVectorString() {
+        updateMatrices();
+        StringBuilder sb = new StringBuilder("Disponíveis: ");
+        if (recursos.isEmpty())
+            return sb.toString();
+        for (int i = 0; i < recursos.size(); i++) {
+            sb.append(recursos.get(i).getNome()).append(": ").append(availableVector[i]);
+            if (i < recursos.size() - 1)
+                sb.append(" | ");
+        }
+        return sb.toString();
+    }
+
     private void updateMatrices() {
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastMatrixUpdate < MATRIX_UPDATE_INTERVAL_MS) {
@@ -288,21 +326,45 @@ public class SistemaOperacional extends Thread {
                         List<Recurso> recursosAlocados = alocados.getOrDefault(p, new ArrayList<>());
                         for (Recurso r : recursosAlocados) {
                             int j = recursos.indexOf(r);
-                            if (j >= 0) allocationMatrix[i][j] += 1;
+                            if (j >= 0)
+                                allocationMatrix[i][j] += 1;
                         }
                         Recurso r = aguardando.get(p);
                         if (r != null) {
                             int j = recursos.indexOf(r);
-                            if (j >= 0) requestMatrix[i][j] = 1;
+                            if (j >= 0)
+                                requestMatrix[i][j] = 1;
                         }
                     }
                 }
             }
         }
+        needsUpdate = true;
+    }
+
+    private void startTimerThread() {
+        timerThread = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    Thread.sleep(1000);
+                    if (needsUpdate) {
+                        logger.accept("Atualizando interface via timerThread.");
+                        onUpdate.run();
+                        needsUpdate = false;
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        });
+        timerThread.setDaemon(true);
+        timerThread.start();
     }
 
     @Override
     public void run() {
+        logger.accept("Simulação iniciada.");
         while (!isInterrupted()) {
             try {
                 Thread.sleep(intervaloVerificacao * 1000L);
@@ -311,10 +373,15 @@ public class SistemaOperacional extends Thread {
                 break;
             }
         }
+        if (timerThread != null) {
+            timerThread.interrupt();
+        }
+        logger.accept("Simulação encerrada.");
     }
 
     private void detectarDeadlock() {
-        if (recursos.isEmpty() || processos.isEmpty()) return;
+        if (recursos.isEmpty() || processos.isEmpty())
+            return;
 
         updateMatrices();
         int n = processos.size();
@@ -361,6 +428,7 @@ public class SistemaOperacional extends Thread {
         } else {
             logger.accept("Sistema está em estado seguro.");
         }
+        needsUpdate = true;
         onUpdate.run();
     }
 }
