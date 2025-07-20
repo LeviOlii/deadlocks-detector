@@ -20,7 +20,9 @@ public class Recurso {
     }
 
     public void liberar() {
-        disponivel++;
+        if (disponivel < total) {
+            disponivel++;
+        }
     }
 
     public int getId() { return id; }
@@ -30,6 +32,6 @@ public class Recurso {
 
     @Override
     public String toString() {
-        return nome + " (" + disponivel + "/" + total + ")";
+        return nome + " (ID: " + id + ", " + disponivel + "/" + total + ")";
     }
 }
