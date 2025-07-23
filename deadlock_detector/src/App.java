@@ -5,6 +5,9 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import javafx.geometry.Insets;
+import javafx.animation.Timeline;
+import javafx.animation.KeyFrame;
+import javafx.util.Duration;
 
 import java.util.Optional;
 
@@ -17,6 +20,9 @@ public class App extends Application {
     private ListView<String> listaRecursosDisponiveis = new ListView<>();
     private TextArea matrizAlocacao = new TextArea();
     private TextArea matrizRequisicao = new TextArea();
+    private Label cronometroLabel = new Label("0s");
+    private long startTime = 0;
+    private Timeline timeline;
 
     @Override
     public void start(Stage primaryStage) {
@@ -43,6 +49,17 @@ public class App extends Application {
         sistemaOperacional.setOnUpdate(this::atualizarInterface);
         sistemaOperacional.setLogger(this::log);
         sistemaOperacional.start();
+
+        // Configuração do cronômetro
+        cronometroLabel.setStyle("-fx-font-size: 16; -fx-font-weight: bold;");
+        timeline = new Timeline(new KeyFrame(Duration.seconds(1), event -> {
+            if (startTime > 0) {
+                long elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000;
+                cronometroLabel.setText(elapsedSeconds + "s");
+            }
+        }));
+        timeline.setCycleCount(Timeline.INDEFINITE);
+        timeline.play();
 
         // Layout
         GridPane root = new GridPane();
@@ -112,6 +129,11 @@ public class App extends Application {
                 if (idExistente) {
                     log("Erro: Já existe um processo com o ID informado.");
                     return;
+                }
+
+                // Inicia o cronômetro se for o primeiro processo
+                if (sistemaOperacional.getProcessos().isEmpty()) {
+                    startTime = System.currentTimeMillis();
                 }
 
                 Processo p = new Processo(id, ts, tu, sistemaOperacional, this::log);
@@ -186,7 +208,7 @@ public class App extends Application {
 
         logArea.setEditable(false);
         logArea.setWrapText(true);
-        logArea.setPrefHeight(400);
+        logArea.setPrefHeight(350); // Reduzido para acomodar o cronômetro
 
         rightPane.getChildren().addAll(
                 new Label("Matriz de Alocação:"),
@@ -194,7 +216,9 @@ public class App extends Application {
                 new Label("Matriz de Requisição:"),
                 matrizRequisicao,
                 new Label("Log do Sistema:"),
-                logArea
+                logArea,
+                new Label("Tempo de Execução:"),
+                cronometroLabel
         );
 
         root.add(leftPane, 0, 0);
@@ -227,6 +251,7 @@ public class App extends Application {
 
     @Override
     public void stop() {
+        timeline.stop();
         for (Processo p : sistemaOperacional.getProcessos()) {
             p.interrupt();
         }
