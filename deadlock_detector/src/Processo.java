@@ -14,7 +14,8 @@ public class Processo extends Thread {
     private ConcurrentMap<Recurso, Long> timerStartTimes = new ConcurrentHashMap<>();
     private Recurso recursoSolicitado = null;
 
-    public Processo(int id, int deltaS, int deltaU, SistemaOperacional sistema, java.util.function.Consumer<String> logger) {
+    public Processo(int id, int deltaS, int deltaU, SistemaOperacional sistema,
+            java.util.function.Consumer<String> logger) {
         this.id = id;
         this.deltaS = deltaS;
         this.deltaU = deltaU;
@@ -38,9 +39,9 @@ public class Processo extends Thread {
                 if (!recursosUsados.isEmpty()) {
                     status.append(", usando ");
                     status.append(String.join(", ", recursosUsados.stream()
-                        .map(r -> r.getNome() + " (" + recursosUsados.stream().filter(x -> x == r).count() + ")")
-                        .distinct()
-                        .toList()));
+                            .map(r -> r.getNome() + " (" + recursosUsados.stream().filter(x -> x == r).count() + ")")
+                            .distinct()
+                            .toList()));
                 }
                 status.append("]");
             } else if (recursosUsados.isEmpty()) {
@@ -48,9 +49,9 @@ public class Processo extends Thread {
             } else {
                 status.append(" [rodando, usando ");
                 status.append(String.join(", ", recursosUsados.stream()
-                    .map(r -> r.getNome() + " (" + recursosUsados.stream().filter(x -> x == r).count() + ")")
-                    .distinct()
-                    .toList()));
+                        .map(r -> r.getNome() + " (" + recursosUsados.stream().filter(x -> x == r).count() + ")")
+                        .distinct()
+                        .toList()));
                 status.append("]");
             }
             return status.toString();
@@ -86,90 +87,26 @@ public class Processo extends Thread {
                         logger.accept("Processo " + id + " obteve recurso " + recursoSolicitado.getNome());
                         // Start timer for new resource
                         Recurso acquired = recursoSolicitado;
-                        timerStartTimes.put(acquired, System.currentTimeMillis());
+                        long startTime = System.currentTimeMillis();
+                        timerStartTimes.put(acquired, startTime);
                         Thread timer = new Thread(() -> {
                             try {
                                 while (!Thread.currentThread().isInterrupted()) {
-                                    // Recalculate elapsed and remaining each iteration
-                                    long startTime = timerStartTimes.getOrDefault(acquired, System.currentTimeMillis());
                                     long elapsed = System.currentTimeMillis() - startTime;
                                     long remaining = deltaU * 1000L - elapsed;
                                     if (remaining <= 0) {
                                         synchronized (recursosUsados) {
                                             if (recursosUsados.remove(acquired)) {
                                                 sistema.liberarRecurso(this, acquired);
-                                                logger.accept("Processo " + id + " liberou recurso " + acquired.getNome() + ", solicitando novo recurso...");
-                                                synchronized (Processo.this) {
-                                                    if (recursosUsados.size() < sistema.getTotalRecursosSistema()) {
-                                                        Recurso newRequest = sistema.solicitarRecurso(this);
-                                                        if (newRequest != null) {
-                                                            recursosUsados.add(newRequest);
-                                                            logger.accept("Processo " + id + " obteve recurso " + newRequest.getNome());
-                                                            timerStartTimes.put(newRequest, System.currentTimeMillis());
-                                                            Thread newTimer = new Thread(() -> {
-                                                                try {
-                                                                    while (!Thread.currentThread().isInterrupted()) {
-                                                                        long newStart = timerStartTimes.getOrDefault(newRequest, System.currentTimeMillis());
-                                                                        long newElapsed = System.currentTimeMillis() - newStart;
-                                                                        long newRemaining = deltaU * 1000L - newElapsed;
-                                                                        if (newRemaining <= 0) {
-                                                                            synchronized (recursosUsados) {
-                                                                                if (recursosUsados.remove(newRequest)) {
-                                                                                    sistema.liberarRecurso(this, newRequest);
-                                                                                    logger.accept("Processo " + id + " liberou recurso " + newRequest.getNome() + ", solicitando novo recurso...");
-                                                                                    synchronized (Processo.this) {
-                                                                                        if (recursosUsados.size() < sistema.getTotalRecursosSistema()) {
-                                                                                            Recurso anotherRequest = sistema.solicitarRecurso(this);
-                                                                                            if (anotherRequest != null) {
-                                                                                                recursosUsados.add(anotherRequest);
-                                                                                                logger.accept("Processo " + id + " obteve recurso " + anotherRequest.getNome());
-                                                                                                timerStartTimes.put(anotherRequest, System.currentTimeMillis());
-                                                                                            } else {
-                                                                                                recursoSolicitado = sistema.getRecursoAguardado(this);
-                                                                                                Processo.this.notify();
-                                                                                            }
-                                                                                        }
-                                                                                    }
-                                                                                }
-                                                                                timers.remove(newRequest);
-                                                                                timerStartTimes.remove(newRequest);
-                                                                            }
-                                                                            break;
-                                                                        }
-                                                                        synchronized (Processo.this) {
-                                                                            if (recursoSolicitado != null) {
-                                                                                Processo.this.wait();
-                                                                            } else {
-                                                                                Thread.sleep(Math.min(newRemaining, 100));
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                } catch (InterruptedException e) {
-                                                                    // Timer interrupted
-                                                                }
-                                                            });
-                                                            timers.put(newRequest, newTimer);
-                                                            newTimer.start();
-                                                        } else {
-                                                            recursoSolicitado = sistema.getRecursoAguardado(this);
-                                                            Processo.this.notify();
-                                                        }
-                                                    }
-                                                }
-                                                timers.remove(acquired);
-                                                timerStartTimes.remove(acquired);
+                                                logger.accept(
+                                                        "Processo " + id + " liberou recurso " + acquired.getNome());
                                             }
+                                            timers.remove(acquired);
+                                            timerStartTimes.remove(acquired);
                                         }
                                         break;
                                     }
-                                    // Pause timer if blocked
-                                    synchronized (Processo.this) {
-                                        if (recursoSolicitado != null) {
-                                            Processo.this.wait();
-                                        } else {
-                                            Thread.sleep(Math.min(remaining, 100));
-                                        }
-                                    }
+                                    Thread.sleep(Math.min(remaining, 100));
                                 }
                             } catch (InterruptedException e) {
                                 // Timer interrupted
@@ -194,44 +131,29 @@ public class Processo extends Thread {
                                             recursosUsados.add(newlyAcquired);
                                         }
                                         logger.accept("Processo " + id + " obteve recurso " + newlyAcquired.getNome());
-                                        timerStartTimes.put(newlyAcquired, System.currentTimeMillis());
+                                        long startTime = System.currentTimeMillis();
+                                        timerStartTimes.put(newlyAcquired, startTime);
                                         Thread newTimer = new Thread(() -> {
                                             try {
                                                 while (!Thread.currentThread().isInterrupted()) {
-                                                    long newStart = timerStartTimes.getOrDefault(newlyAcquired, System.currentTimeMillis());
+                                                    long newStart = timerStartTimes.getOrDefault(newlyAcquired,
+                                                            System.currentTimeMillis());
                                                     long newElapsed = System.currentTimeMillis() - newStart;
                                                     long newRemaining = deltaU * 1000L - newElapsed;
                                                     if (newRemaining <= 0) {
                                                         synchronized (recursosUsados) {
                                                             if (recursosUsados.remove(newlyAcquired)) {
                                                                 sistema.liberarRecurso(this, newlyAcquired);
-                                                                logger.accept("Processo " + id + " liberou recurso " + newlyAcquired.getNome() + ", solicitando novo recurso...");
-                                                                synchronized (Processo.this) {
-                                                                    if (recursosUsados.size() < sistema.getTotalRecursosSistema()) {
-                                                                        Recurso newRequest = sistema.solicitarRecurso(this);
-                                                                        if (newRequest != null) {
-                                                                            recursosUsados.add(newRequest);
-                                                                            logger.accept("Processo " + id + " obteve recurso " + newRequest.getNome());
-                                                                            timerStartTimes.put(newRequest, System.currentTimeMillis());
-                                                                        } else {
-                                                                            recursoSolicitado = sistema.getRecursoAguardado(this);
-                                                                            Processo.this.notify();
-                                                                        }
-                                                                    }
-                                                                }
+                                                                logger.accept("Processo " + id + " liberou recurso "
+                                                                        + newlyAcquired.getNome());
                                                             }
                                                             timers.remove(newlyAcquired);
                                                             timerStartTimes.remove(newlyAcquired);
                                                         }
                                                         break;
                                                     }
-                                                    synchronized (Processo.this) {
-                                                        if (recursoSolicitado != null) {
-                                                            Processo.this.wait();
-                                                        } else {
-                                                            Thread.sleep(Math.min(newRemaining, 100));
-                                                        }
-                                                    }
+                                                    Thread.sleep(Math.min(newRemaining, 100));
+
                                                 }
                                             } catch (InterruptedException e) {
                                                 // Timer interrupted
