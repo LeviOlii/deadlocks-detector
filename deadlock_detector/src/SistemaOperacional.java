@@ -8,6 +8,7 @@ public class SistemaOperacional extends Thread {
     private Map<Processo, Recurso> aguardando = new HashMap<>();
     private Map<Recurso, List<Processo>> processosAguardando = new HashMap<>();
     private java.util.function.Consumer<String> logger = System.out::println;
+    private long startTime = System.currentTimeMillis();
     private Runnable onUpdate = () -> {
     };
     private int intervaloVerificacao;
@@ -96,51 +97,49 @@ public class SistemaOperacional extends Thread {
 
     public Recurso solicitarRecurso(Processo p) {
         List<Recurso> recursosAlocados = alocados.getOrDefault(p, new ArrayList<>());
-        List<Recurso> recursosDisponiveis = new ArrayList<>();
         Random random = new Random();
 
         while (true) {
-            // Filtra recursos com instâncias disponíveis e não excedendo o total alocado
-            // por tipo
-            recursosDisponiveis = recursos.stream()
-                    .filter(r -> r.getDisponivel() > 0
-                            && recursosAlocados.stream().filter(x -> x == r).count() < r.getTotal())
-                    .toList();
-
-            if (recursosDisponiveis.isEmpty()) {
-                // Tenta sortear um recurso não alocado, mesmo que esteja em uso, para aguardar
-                List<Recurso> recursosNaoAlocados = recursos.stream()
-                        .filter(r -> recursosAlocados.stream().filter(x -> x == r).count() < r.getTotal())
-                        .toList();
-                if (recursosNaoAlocados.isEmpty()) {
-                    return null; // Nenhum recurso disponível ou para aguardar
-                }
-                Recurso r = recursosNaoAlocados.get(random.nextInt(recursosNaoAlocados.size()));
-                if (!aguardando.containsKey(p)) {
-                    aguardando.put(p, r);
-                    processosAguardando.computeIfAbsent(r, k -> new ArrayList<>()).add(p);
-                    logger.accept("Processo " + p.getProcessoName() + " bloqueado aguardando " + r.getNome());
-                    updateMatrices();
-                    onUpdate.run();
-                }
+            // Sorteia um recurso existente
+            List<Recurso> recursosExistentes = new ArrayList<>(recursos);
+            if (recursosExistentes.isEmpty()) {
                 return null;
             }
+            Recurso r = recursosExistentes.get(random.nextInt(recursosExistentes.size()));
 
-            // Sorteia um recurso disponível
-            Recurso r = recursosDisponiveis.get(random.nextInt(recursosDisponiveis.size()));
-            if (r.alocar()) {
-                alocados.computeIfAbsent(p, k -> new ArrayList<>()).add(r);
-                Recurso prev = aguardando.remove(p);
-                if (prev != null) {
-                    processosAguardando.get(prev).remove(p);
+            // Verifica se há instâncias disponíveis
+            if (r.getDisponivel() > 0) {
+                if (r.alocar()) {
+                    alocados.computeIfAbsent(p, k -> new ArrayList<>()).add(r);
+                    Recurso prev = aguardando.remove(p);
+                    if (prev != null) {
+                        processosAguardando.get(prev).remove(p);
+                    }
+                    logger.accept("Processo " + p.getProcessoName() + " obteve recurso " + r.getNome() + " às "
+                            + (System.currentTimeMillis() - startTime) / 1000 + "s");
+                    updateMatrices();
+                    onUpdate.run();
+                    return r;
                 }
-                logger.accept("Processo " + p.getProcessoName() + " obteve recurso " + r.getNome());
-                updateMatrices();
-                onUpdate.run();
-                return r;
+            } else {
+                // Verifica se o processo já possui todas as instâncias desse recurso
+                long countAlocados = recursosAlocados.stream().filter(x -> x == r).count();
+                if (countAlocados < r.getTotal()) {
+                    // Bloqueia o processo se não possui todas as instâncias
+                    if (!aguardando.containsKey(p) || aguardando.get(p) != r) {
+                        aguardando.put(p, r);
+                        processosAguardando.computeIfAbsent(r, k -> new ArrayList<>()).add(p);
+                        logger.accept("Processo " + p.getProcessoName() + " bloqueado aguardando " + r.getNome()
+                                + " às " + (System.currentTimeMillis() - startTime) / 1000 + "s");
+                        updateMatrices();
+                        onUpdate.run();
+                    }
+                    return null;
+                } else {
+                    // Se possui todas as instâncias, sorteia novamente
+                    continue; // Volta ao início do loop
+                }
             }
-            // Se a alocação falhar (deve ser rara devido ao filtro), tenta novamente com
-            // outro recurso
         }
     }
 
