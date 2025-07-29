@@ -1,9 +1,12 @@
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 import javafx.geometry.Insets;
 
 import java.util.Optional;
@@ -17,6 +20,9 @@ public class App extends Application {
     private ListView<String> listaRecursosDisponiveis = new ListView<>();
     private TextArea matrizAlocacao = new TextArea();
     private TextArea matrizRequisicao = new TextArea();
+    private Label cronometroLabel = new Label("0s");
+    private long startTime = 0;
+    private Timeline timeline;
 
     @Override
     public void start(Stage primaryStage) {
@@ -30,7 +36,8 @@ public class App extends Application {
         if (result.isPresent()) {
             try {
                 intervalo = Integer.parseInt(result.get());
-                if (intervalo <= 0) throw new NumberFormatException();
+                if (intervalo <= 0)
+                    throw new NumberFormatException();
             } catch (NumberFormatException e) {
                 log("Valor inválido para Δt. Usando 5 segundos.");
                 intervalo = 5;
@@ -44,7 +51,17 @@ public class App extends Application {
         sistemaOperacional.setLogger(this::log);
         sistemaOperacional.start();
 
-        // Layout
+        cronometroLabel.setStyle("-fx-font-size: 16; -fx-font-weight: bold;");
+        timeline = new Timeline(new KeyFrame(Duration.seconds(1), event -> {
+            if (startTime > 0) {
+                long elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000;
+                cronometroLabel.setText(elapsedSeconds + "s");
+            }
+        }));
+        timeline.setCycleCount(Timeline.INDEFINITE);
+        timeline.play();
+
+        // leiaute
         GridPane root = new GridPane();
         root.setPadding(new Insets(10));
         root.setHgap(10);
@@ -56,7 +73,7 @@ public class App extends Application {
         col2.setPercentWidth(50);
         root.getColumnConstraints().addAll(col1, col2);
 
-        // Left side: Inputs and Lists
+        // lado esq: recursos, vetores e matrizes
         VBox leftPane = new VBox(10);
         leftPane.setPadding(new Insets(10));
 
@@ -72,7 +89,8 @@ public class App extends Application {
             try {
                 int id = Integer.parseInt(idRecurso.getText());
                 int qtd = Integer.parseInt(qtdRecurso.getText());
-                if (qtd <= 0) throw new NumberFormatException();
+                if (qtd <= 0)
+                    throw new NumberFormatException();
                 Recurso recurso = new Recurso(id, nomeRecurso.getText(), qtd);
                 boolean adicionado = sistemaOperacional.adicionarRecurso(recurso);
                 if (adicionado) {
@@ -86,7 +104,8 @@ public class App extends Application {
             }
         });
 
-        HBox recursoInputs = new HBox(5, new Label("Recurso:"), nomeRecurso, idRecurso, qtdRecurso, btnAdicionarRecurso);
+        HBox recursoInputs = new HBox(5, new Label("Recurso:"), nomeRecurso, idRecurso, qtdRecurso,
+                btnAdicionarRecurso);
 
         TextField idProcessoField = new TextField();
         idProcessoField.setPromptText("ID Processo");
@@ -101,17 +120,22 @@ public class App extends Application {
                 int id = Integer.parseInt(idProcessoField.getText());
                 int ts = Integer.parseInt(tsField.getText());
                 int tu = Integer.parseInt(tuField.getText());
-                if (ts <= 0 || tu <= 0) throw new NumberFormatException();
+                if (ts <= 0 || tu <= 0)
+                    throw new NumberFormatException();
 
                 if (sistemaOperacional.getProcessos().size() >= 10) {
                     log("Erro: Limite de 10 processos atingido.");
                     return;
                 }
                 boolean idExistente = sistemaOperacional.getProcessos().stream()
-                    .anyMatch(proc -> proc.getProcessoId() == id);
+                        .anyMatch(proc -> proc.getProcessoId() == id);
                 if (idExistente) {
                     log("Erro: Já existe um processo com o ID informado.");
                     return;
+                }
+
+                if (sistemaOperacional.getProcessos().isEmpty()) {
+                    startTime = System.currentTimeMillis();
                 }
 
                 Processo p = new Processo(id, ts, tu, sistemaOperacional, this::log);
@@ -134,9 +158,9 @@ public class App extends Application {
             try {
                 int idEliminar = Integer.parseInt(idEliminarField.getText());
                 Processo p = sistemaOperacional.getProcessos().stream()
-                    .filter(proc -> proc.getProcessoId() == idEliminar)
-                    .findFirst()
-                    .orElse(null);
+                        .filter(proc -> proc.getProcessoId() == idEliminar)
+                        .findFirst()
+                        .orElse(null);
                 if (p != null) {
                     p.interrupt();
                     sistemaOperacional.removerProcesso(p);
@@ -163,14 +187,12 @@ public class App extends Application {
                 listaTodosRecursos,
                 new Label("Recursos Disponíveis:"),
                 listaRecursosDisponiveis,
-                new Label("Adicionar Processo:"),
-                processoInputs,
-                new Label("Processos:"),
-                listaProcessos,
-                botoesProcesso
-        );
+                new Label("Matriz de Alocação:"),
+                matrizAlocacao,
+                new Label("Matriz de Requisição:"),
+                matrizRequisicao);
 
-        // Right side: Matrices and Log
+        // lado direito: log e processos
         VBox rightPane = new VBox(10);
         rightPane.setPadding(new Insets(10));
 
@@ -186,16 +208,18 @@ public class App extends Application {
 
         logArea.setEditable(false);
         logArea.setWrapText(true);
-        logArea.setPrefHeight(400);
+        logArea.setPrefHeight(350);
 
         rightPane.getChildren().addAll(
-                new Label("Matriz de Alocação:"),
-                matrizAlocacao,
-                new Label("Matriz de Requisição:"),
-                matrizRequisicao,
+                new Label("Adicionar Processo:"),
+                processoInputs,
                 new Label("Log do Sistema:"),
-                logArea
-        );
+                logArea,
+                new Label("Tempo de Execução:"),
+                cronometroLabel,
+                new Label("Processos:"),
+                listaProcessos,
+                botoesProcesso);
 
         root.add(leftPane, 0, 0);
         root.add(rightPane, 1, 0);
@@ -208,10 +232,9 @@ public class App extends Application {
     public void atualizarInterface() {
         Platform.runLater(() -> {
             listaTodosRecursos.getItems().setAll(
-                sistemaOperacional.getRecursos().stream()
-                    .map(r -> r.getNome() + " (ID: " + r.getId() + ", Total: " + r.getTotal() + ")")
-                    .toList()
-            );
+                    sistemaOperacional.getRecursos().stream()
+                            .map(r -> r.getNome() + " (ID: " + r.getId() + ", Total: " + r.getTotal() + ")")
+                            .toList());
             listaRecursosDisponiveis.getItems().setAll(sistemaOperacional.statusRecursos());
             listaProcessos.getItems().setAll(sistemaOperacional.statusProcessos());
             matrizAlocacao.setText(sistemaOperacional.getAllocationMatrixString());
