@@ -117,6 +117,7 @@ public class Processo extends Thread {
         timers.put(instance, timer);
         timer.start();
     }
+    
 
     @Override
     public void run() {
@@ -134,8 +135,6 @@ public class Processo extends Thread {
                             RecursoInstance instance = new RecursoInstance(null,
                                     SistemaOperacional.getNextGlobalInstanceId());
                             recursoSolicitado = sistema.solicitarRecurso(this, instance);
-                            logger.accept("Processo " + id + " obteve recurso" + instance.getClass().getName() + " às "  
-                                    + (currentTime - startTime) / 1000 + "s...");
                             if (recursoSolicitado != null) {
                                 synchronized (recursosUsados) {
                                     instance.setRecurso(recursoSolicitado);

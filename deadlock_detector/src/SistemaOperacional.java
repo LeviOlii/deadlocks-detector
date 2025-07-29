@@ -130,8 +130,7 @@ public class SistemaOperacional extends Thread {
                     if (prev != null) {
                         processosAguardando.get(prev).remove(p);
                     }
-                    logger.accept("Processo " + p.getProcessoName() + " obteve recurso " + r.getNome() + " às "
-                            + ( - startTime) / 1000 + "s");
+                    logger.accept("Processo " + p.getProcessoName() + " obteve recurso " + r.getNome());
                     updateMatrices();
                     onUpdate.run();
                     return r;
@@ -182,8 +181,8 @@ public class SistemaOperacional extends Thread {
 
     private synchronized void notifyWaitingProcesses(Recurso r) {
         CopyOnWriteArrayList<Processo> waiting = processosAguardando.getOrDefault(r, new CopyOnWriteArrayList<>());
-        logger.accept("Verificando notificação para " + r.getNome() + ", lista: "
-                + waiting.stream().map(p -> p.getProcessoName()).collect(Collectors.joining(", ")));
+        //logger.accept("Verificando notificação para " + r.getNome() + ", lista: "
+        //        + waiting.stream().map(p -> p.getProcessoName()).collect(Collectors.joining(", ")));
         if (!waiting.isEmpty()) {
             for (Processo p : new ArrayList<>(waiting)) { // Cria uma cópia para evitar ConcurrentModificationException
                 aguardando.remove(p); // Remove da lista de aguardando
