@@ -1,14 +1,18 @@
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 public class SistemaOperacional extends Thread {
     private List<Recurso> recursos = new ArrayList<>();
     private List<Processo> processos = new CopyOnWriteArrayList<>();
-    private Map<Processo, List<Recurso>> alocados = new HashMap<>();
-    private Map<Processo, Recurso> aguardando = new HashMap<>();
-    private Map<Recurso, List<Processo>> processosAguardando = new HashMap<>();
+    private Map<Processo, List<RecursoInstance>> alocados = new HashMap<>(); // Alterado para RecursoInstance
+    private Map<Processo, Recurso> aguardando = new ConcurrentHashMap<>();
+    private Map<Recurso, CopyOnWriteArrayList<Processo>> processosAguardando = new ConcurrentHashMap<>();
     private java.util.function.Consumer<String> logger = System.out::println;
     private long startTime = System.currentTimeMillis();
+    private static final AtomicInteger globalInstanceCounter = new AtomicInteger(0);
     private Runnable onUpdate = () -> {
     };
     private int intervaloVerificacao;
@@ -18,6 +22,10 @@ public class SistemaOperacional extends Thread {
 
     public SistemaOperacional(int intervaloVerificacao) {
         this.intervaloVerificacao = intervaloVerificacao;
+    }
+
+    public static int getNextGlobalInstanceId() {
+        return globalInstanceCounter.getAndIncrement();
     }
 
     public void setLogger(java.util.function.Consumer<String> logFunc) {
@@ -36,7 +44,7 @@ public class SistemaOperacional extends Thread {
                 return false;
         }
         recursos.add(r);
-        processosAguardando.put(r, new ArrayList<>());
+        processosAguardando.put(r, new CopyOnWriteArrayList<>());
         updateMatrices();
         return true;
     }
@@ -44,23 +52,26 @@ public class SistemaOperacional extends Thread {
     public void adicionarProcesso(Processo p) {
         if (processos.size() < 10) {
             processos.add(p);
-            alocados.put(p, new ArrayList<>());
+            alocados.put(p, new ArrayList<>()); // Inicializa com lista de RecursoInstance
             updateMatrices();
         }
     }
 
     public void removerProcesso(Processo p) {
         processos.remove(p);
-        List<Recurso> recursosAlocados = alocados.get(p);
+        List<RecursoInstance> recursosAlocados = alocados.get(p);
         if (recursosAlocados != null) {
-            for (Recurso r : new ArrayList<>(recursosAlocados)) {
-                liberarRecurso(p, r);
+            for (RecursoInstance ri : new ArrayList<>(recursosAlocados)) {
+                liberarRecurso(p, ri); // Passa RecursoInstance
             }
             alocados.remove(p);
         }
         Recurso r = aguardando.remove(p);
         if (r != null) {
-            processosAguardando.get(r).remove(p);
+            CopyOnWriteArrayList<Processo> list = processosAguardando.get(r);
+            if (list != null) {
+                list.remove(p);
+            }
         }
         updateMatrices();
         onUpdate.run();
@@ -69,7 +80,12 @@ public class SistemaOperacional extends Thread {
     public void limparAguardando(Processo p) {
         Recurso r = aguardando.remove(p);
         if (r != null) {
-            processosAguardando.get(r).remove(p);
+            CopyOnWriteArrayList<Processo> list = processosAguardando.get(r);
+            if (list != null) {
+                list.remove(p);
+                logger.accept(
+                        "Processo " + p.getProcessoName() + " removido de processosAguardando para " + r.getNome());
+            }
             updateMatrices();
             onUpdate.run();
         }
@@ -87,7 +103,7 @@ public class SistemaOperacional extends Thread {
         return processos;
     }
 
-    public List<Recurso> getAlocados(Processo p) {
+    public List<RecursoInstance> getAlocados(Processo p) {
         return new ArrayList<>(alocados.getOrDefault(p, new ArrayList<>()));
     }
 
@@ -95,101 +111,108 @@ public class SistemaOperacional extends Thread {
         return recursos.stream().mapToInt(Recurso::getTotal).sum();
     }
 
-    public Recurso solicitarRecurso(Processo p) {
-        List<Recurso> recursosAlocados = alocados.getOrDefault(p, new ArrayList<>());
+    public Recurso solicitarRecurso(Processo p, RecursoInstance instance) {
+        List<RecursoInstance> recursosAlocados = alocados.getOrDefault(p, new ArrayList<>());
         Random random = new Random();
 
         while (true) {
-            // Sorteia um recurso existente
             List<Recurso> recursosExistentes = new ArrayList<>(recursos);
             if (recursosExistentes.isEmpty()) {
                 return null;
             }
             Recurso r = recursosExistentes.get(random.nextInt(recursosExistentes.size()));
 
-            // Verifica se há instâncias disponíveis
             if (r.getDisponivel() > 0) {
                 if (r.alocar()) {
-                    alocados.computeIfAbsent(p, k -> new ArrayList<>()).add(r);
+                    instance.setRecurso(r);
+                    alocados.computeIfAbsent(p, k -> new ArrayList<>()).add(instance);
                     Recurso prev = aguardando.remove(p);
                     if (prev != null) {
                         processosAguardando.get(prev).remove(p);
                     }
                     logger.accept("Processo " + p.getProcessoName() + " obteve recurso " + r.getNome() + " às "
-                            + (System.currentTimeMillis() - startTime) / 1000 + "s");
+                            + ( - startTime) / 1000 + "s");
                     updateMatrices();
                     onUpdate.run();
                     return r;
                 }
             } else {
-                // Verifica se o processo já possui todas as instâncias desse recurso
-                long countAlocados = recursosAlocados.stream().filter(x -> x == r).count();
+                long countAlocados = recursosAlocados.stream().filter(ri -> ri.getRecurso() == r).count();
                 if (countAlocados < r.getTotal()) {
-                    // Bloqueia o processo se não possui todas as instâncias
-                    if (!aguardando.containsKey(p) || aguardando.get(p) != r) {
-                        aguardando.put(p, r);
-                        processosAguardando.computeIfAbsent(r, k -> new ArrayList<>()).add(p);
-                        logger.accept("Processo " + p.getProcessoName() + " bloqueado aguardando " + r.getNome()
-                                + " às " + (System.currentTimeMillis() - startTime) / 1000 + "s");
-                        updateMatrices();
-                        onUpdate.run();
+                    synchronized (processosAguardando) {
+                        if (aguardando.putIfAbsent(p, r) == null) { // Só adiciona se não estiver aguardando
+                            CopyOnWriteArrayList<Processo> waitingList = processosAguardando.computeIfAbsent(r,
+                                    k -> new CopyOnWriteArrayList<>());
+                            if (!waitingList.contains(p)) {
+                                waitingList.add(p);
+                                //logger.accept("Processo " + p.getProcessoName()
+                                   //     + " adicionado a processosAguardando para " + r.getNome());
+                            } else {
+                                //logger.accept("Processo " + p.getProcessoName()
+                                  //      + " já está em processosAguardando para " + r.getNome());
+                            }
+                            updateMatrices();
+                            onUpdate.run();
+                        }
                     }
                     return null;
                 } else {
-                    // Se possui todas as instâncias, sorteia novamente
-                    continue; // Volta ao início do loop
+                    return null;
                 }
             }
         }
     }
 
-    public Recurso retryingSolicitarRecurso(Processo p, Recurso r) {
-        List<Recurso> recursosAlocados = alocados.getOrDefault(p, new ArrayList<>());
-        if (recursosAlocados.size() >= 3 || recursosAlocados.stream().filter(x -> x == r).count() >= r.getTotal()) {
-            aguardando.remove(p);
-            processosAguardando.get(r).remove(p);
-            updateMatrices();
-            onUpdate.run();
-            return null;
-        }
-        if (r.alocar()) {
-            alocados.computeIfAbsent(p, k -> new ArrayList<>()).add(r);
-            aguardando.remove(p);
-            processosAguardando.get(r).remove(p);
-            logger.accept("Processo " + p.getProcessoName() + " obteve recurso " + r.getNome());
-            updateMatrices();
-            onUpdate.run();
-            return null;
-        }
-        return r;
-    }
-
-    public void liberarRecurso(Processo p, Recurso r) {
-        List<Recurso> recursosAlocados = alocados.get(p);
+    public void liberarRecurso(Processo p, RecursoInstance instance) { // Alterado para RecursoInstance
+        List<RecursoInstance> recursosAlocados = alocados.get(p);
+        // logger.accept(recursosAlocados.toString());
         if (recursosAlocados != null) {
-            if (recursosAlocados.remove(r)) {
+            Recurso r = instance.getRecurso();
+            if (recursosAlocados.remove(instance)) {
                 r.liberar();
                 logger.accept("Processo " + p.getProcessoName() + " liberou recurso " + r.getNome());
                 notifyWaitingProcesses(r);
                 updateMatrices();
                 onUpdate.run();
+            } else {
+                logger.accept("Falha ao remover " + r.getNome() + " de recursosAlocados para " + p.getProcessoName());
             }
         }
     }
 
-    private void notifyWaitingProcesses(Recurso r) {
-        List<Processo> waiting = new ArrayList<>(processosAguardando.getOrDefault(r, new ArrayList<>()));
-        for (Processo p : waiting) {
-            p.notifyProcess();
+    private synchronized void notifyWaitingProcesses(Recurso r) {
+        CopyOnWriteArrayList<Processo> waiting = processosAguardando.getOrDefault(r, new CopyOnWriteArrayList<>());
+        logger.accept("Verificando notificação para " + r.getNome() + ", lista: "
+                + waiting.stream().map(p -> p.getProcessoName()).collect(Collectors.joining(", ")));
+        if (!waiting.isEmpty()) {
+            for (Processo p : new ArrayList<>(waiting)) { // Cria uma cópia para evitar ConcurrentModificationException
+                aguardando.remove(p); // Remove da lista de aguardando
+                p.notifyProcess();
+                waiting.remove(p); // Remove da cópia
+            }
+            processosAguardando.remove(r); // Limpa a lista após notificação
         }
     }
 
     public List<String> statusRecursos() {
-        List<String> lista = new ArrayList<>();
-        for (Recurso r : recursos) {
-            lista.add(r.toString());
+        List<String> resultado = new ArrayList<>();
+        if (recursos.isEmpty()) {
+            resultado.add("Nenhum recurso disponível.");
+            return resultado;
         }
-        return lista;
+        // Cabeçalho com nomes dos recursos
+        StringBuilder cabecalho = new StringBuilder(String.format("%-6s", ""));
+        for (Recurso r : recursos) {
+            cabecalho.append(String.format("%-4s", r.getNome()));
+        }
+        resultado.add(cabecalho.toString());
+        // Linha de quantidades disponíveis
+        StringBuilder valores = new StringBuilder(String.format("%-6s", ""));
+        for (Recurso r : recursos) {
+            valores.append(String.format("%-4d", r.getDisponivel()));
+        }
+        resultado.add(valores.toString());
+        return resultado;
     }
 
     public List<String> statusProcessos() {
@@ -263,9 +286,9 @@ public class SistemaOperacional extends Thread {
 
         for (int i = 0; i < n; i++) {
             Processo p = processos.get(i);
-            List<Recurso> recursosAlocados = alocados.getOrDefault(p, new ArrayList<>());
-            for (Recurso r : recursosAlocados) {
-                int j = recursos.indexOf(r);
+            List<RecursoInstance> recursosAlocados = alocados.getOrDefault(p, new ArrayList<>());
+            for (RecursoInstance ri : recursosAlocados) {
+                int j = recursos.indexOf(ri.getRecurso());
                 if (j >= 0)
                     allocationMatrix[i][j]++;
             }

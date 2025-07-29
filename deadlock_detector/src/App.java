@@ -104,7 +104,8 @@ public class App extends Application {
             }
         });
 
-        HBox recursoInputs = new HBox(5, new Label("Recurso:"), nomeRecurso, idRecurso, qtdRecurso, btnAdicionarRecurso);
+        HBox recursoInputs = new HBox(5, new Label("Recurso:"), nomeRecurso, idRecurso, qtdRecurso,
+                btnAdicionarRecurso);
 
         TextField idProcessoField = new TextField();
         idProcessoField.setPromptText("ID Processo");
@@ -127,7 +128,7 @@ public class App extends Application {
                     return;
                 }
                 boolean idExistente = sistemaOperacional.getProcessos().stream()
-                    .anyMatch(proc -> proc.getProcessoId() == id);
+                        .anyMatch(proc -> proc.getProcessoId() == id);
                 if (idExistente) {
                     log("Erro: Já existe um processo com o ID informado.");
                     return;
@@ -157,9 +158,9 @@ public class App extends Application {
             try {
                 int idEliminar = Integer.parseInt(idEliminarField.getText());
                 Processo p = sistemaOperacional.getProcessos().stream()
-                    .filter(proc -> proc.getProcessoId() == idEliminar)
-                    .findFirst()
-                    .orElse(null);
+                        .filter(proc -> proc.getProcessoId() == idEliminar)
+                        .findFirst()
+                        .orElse(null);
                 if (p != null) {
                     p.interrupt();
                     sistemaOperacional.removerProcesso(p);
@@ -180,17 +181,16 @@ public class App extends Application {
         listaRecursosDisponiveis.setPrefHeight(100);
 
         leftPane.getChildren().addAll(
-            new Label("Adicionar Recurso:"),
-            recursoInputs,
-            new Label("Todos os Recursos:"),
-            listaTodosRecursos,
-            new Label("Recursos Disponíveis:"),
-            listaRecursosDisponiveis,
-            new Label("Matriz de Alocação:"),
-            matrizAlocacao,
-            new Label("Matriz de Requisição:"),
-            matrizRequisicao
-        );
+                new Label("Adicionar Recurso:"),
+                recursoInputs,
+                new Label("Todos os Recursos:"),
+                listaTodosRecursos,
+                new Label("Recursos Disponíveis:"),
+                listaRecursosDisponiveis,
+                new Label("Matriz de Alocação:"),
+                matrizAlocacao,
+                new Label("Matriz de Requisição:"),
+                matrizRequisicao);
 
         // lado direito: log e processos
         VBox rightPane = new VBox(10);
@@ -211,16 +211,15 @@ public class App extends Application {
         logArea.setPrefHeight(350);
 
         rightPane.getChildren().addAll(
-            new Label("Adicionar Processo:"),
-            processoInputs,
-            new Label("Log do Sistema:"),
-            logArea,
-            new Label("Tempo de Execução:"),
-            cronometroLabel,
-            new Label("Processos:"),
-            listaProcessos,
-            botoesProcesso
-        );
+                new Label("Adicionar Processo:"),
+                processoInputs,
+                new Label("Log do Sistema:"),
+                logArea,
+                new Label("Tempo de Execução:"),
+                cronometroLabel,
+                new Label("Processos:"),
+                listaProcessos,
+                botoesProcesso);
 
         root.add(leftPane, 0, 0);
         root.add(rightPane, 1, 0);
@@ -233,10 +232,9 @@ public class App extends Application {
     public void atualizarInterface() {
         Platform.runLater(() -> {
             listaTodosRecursos.getItems().setAll(
-                sistemaOperacional.getRecursos().stream()
-                    .map(r -> r.getNome() + " (ID: " + r.getId() + ", Total: " + r.getTotal() + ")")
-                    .toList()
-            );
+                    sistemaOperacional.getRecursos().stream()
+                            .map(r -> r.getNome() + " (ID: " + r.getId() + ", Total: " + r.getTotal() + ")")
+                            .toList());
             listaRecursosDisponiveis.getItems().setAll(sistemaOperacional.statusRecursos());
             listaProcessos.getItems().setAll(sistemaOperacional.statusProcessos());
             matrizAlocacao.setText(sistemaOperacional.getAllocationMatrixString());
