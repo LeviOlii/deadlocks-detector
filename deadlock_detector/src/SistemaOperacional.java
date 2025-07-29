@@ -2,7 +2,6 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 public class SistemaOperacional extends Thread {
     private List<Recurso> recursos = new ArrayList<>();
@@ -11,7 +10,6 @@ public class SistemaOperacional extends Thread {
     private Map<Processo, Recurso> aguardando = new ConcurrentHashMap<>();
     private Map<Recurso, CopyOnWriteArrayList<Processo>> processosAguardando = new ConcurrentHashMap<>();
     private java.util.function.Consumer<String> logger = System.out::println;
-    private long startTime = System.currentTimeMillis();
     private static final AtomicInteger globalInstanceCounter = new AtomicInteger(0);
     private Runnable onUpdate = () -> {
     };
